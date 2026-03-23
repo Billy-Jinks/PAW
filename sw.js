@@ -1,4 +1,4 @@
-const CACHE = "caderno-v1";
+const CACHE = "caderno-v2";
 const ASSETS = [
   "/",
   "/index.html",
