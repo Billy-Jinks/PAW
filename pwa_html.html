@@ -1,0 +1,829 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#1a6fb5" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="Caderno" />
+  <title>Caderno</title>
+  <link rel="manifest" href="manifest.json" />
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body, #root { height: 100%; width: 100%; overflow: hidden; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 14px; }
+    input, select, textarea, button { font-family: inherit; }
+    ::-webkit-scrollbar { width: 4px; height: 4px; }
+    ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.2); border-radius: 4px; }
+    textarea { resize: vertical; }
+
+    /* CSS variables to match original theme */
+    :root {
+      --color-background-primary: #ffffff;
+      --color-background-secondary: #f4f1ec;
+      --color-background-tertiary: #eae7e0;
+      --color-border-tertiary: rgba(0,0,0,0.12);
+      --color-border-secondary: rgba(0,0,0,0.22);
+      --color-text-primary: #1a1917;
+      --color-text-secondary: #6a6560;
+      --color-background-info: #e0eefa;
+      --color-text-info: #1a6fb5;
+      --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      --border-radius-md: 8px;
+      --border-radius-lg: 12px;
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef, useCallback } = React;
+
+    const DEFAULT_TABS = [
+      { id:"pessoal",  label:"Pessoal",  icon:"🏠" },
+      { id:"trabalho", label:"Trabalho", icon:"💼" },
+      { id:"estudos",  label:"Estudos",  icon:"📚" },
+      { id:"criativo", label:"Criativo", icon:"🎨" },
+    ];
+    const SORT_OPTIONS = [
+      { value:"newest", label:"Mais recente" },
+      { value:"oldest", label:"Mais antiga" },
+      { value:"alpha",  label:"Alfabética" },
+    ];
+    const NOTE_COLORS = {
+      light:[
+        {id:"default",bg:"#e8e5df",border:"#b0aa9e",text:"#2a2825"},
+        {id:"yellow", bg:"#f5d76e",border:"#c49a10",text:"#3d2f00"},
+        {id:"blue",   bg:"#6db3e8",border:"#1a6fb5",text:"#041e3d"},
+        {id:"green",  bg:"#82c95a",border:"#3a7a15",text:"#112500"},
+        {id:"pink",   bg:"#f083a8",border:"#a82255",text:"#3c0019"},
+        {id:"purple", bg:"#9e86e8",border:"#4e34b0",text:"#1a0d47"},
+        {id:"coral",  bg:"#f07a56",border:"#a83010",text:"#3a0c02"},
+        {id:"teal",   bg:"#4ec9a0",border:"#0b6e50",text:"#022b1f"},
+      ],
+      dark:[
+        {id:"default",bg:"#2a2825",border:"#5a5650",text:"#e8e4dc"},
+        {id:"yellow", bg:"#3d2f00",border:"#c49a10",text:"#f5d76e"},
+        {id:"blue",   bg:"#041e3d",border:"#1a6fb5",text:"#6db3e8"},
+        {id:"green",  bg:"#112500",border:"#3a7a15",text:"#82c95a"},
+        {id:"pink",   bg:"#3c0019",border:"#a82255",text:"#f083a8"},
+        {id:"purple", bg:"#1a0d47",border:"#4e34b0",text:"#9e86e8"},
+        {id:"coral",  bg:"#3a0c02",border:"#a83010",text:"#f07a56"},
+        {id:"teal",   bg:"#022b1f",border:"#0b6e50",text:"#4ec9a0"},
+      ],
+    };
+    const EMOJI_LIST=["🏠","💼","📚","🎨","⭐","🔥","💡","📝","🎯","🚀","💎","🌿","🧪","🎵","📊","🗂","🏆","🔖","💬","🌍"];
+
+    function genId(){return Date.now().toString(36)+Math.random().toString(36).slice(2);}
+    function getNow(){return new Date().toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit"});}
+    function makeDefaultData(tabs){return Object.fromEntries(tabs.map(t=>[t.id,{folders:[],notes:[]}]));}
+    function loadState(){
+      try{const r=localStorage.getItem("notebook_v6");if(r)return JSON.parse(r);}catch{}
+      const tabs=DEFAULT_TABS;return{tabs,data:makeDefaultData(tabs)};
+    }
+    function saveState(s){try{localStorage.setItem("notebook_v6",JSON.stringify(s));}catch{}}
+    function themeVars(dark){
+      return dark
+        ?{bg:"#1a1917",bgS:"#242220",bgT:"#2e2c29",border:"#3a3835",text:"#e8e4dc",textS:"#a09c94",textT:"#6a6560",info:"#1a6fb5",infoBg:"#0c2a44"}
+        :{bg:"#ffffff",bgS:"#f4f1ec",bgT:"#eae7e0",border:"#dedad2",text:"#1a1917",textS:"#6a6560",textT:"#a09c94",info:"#1a6fb5",infoBg:"#e0eefa"};
+    }
+
+    // ---- Export helpers ----
+    function download(filename,content,mime){
+      const a=document.createElement("a");
+      a.href=URL.createObjectURL(new Blob([content],{type:mime}));
+      a.download=filename;a.click();URL.revokeObjectURL(a.href);
+    }
+    function noteToMd(note,folderName){
+      let md=`# ${note.title}\n\n`;
+      md+=`**Data:** ${note.dateStr}`;
+      if(folderName)md+=` | **Pasta:** ${folderName}`;
+      if(note.tags?.length)md+=` | **Tags:** ${note.tags.join(", ")}`;
+      md+="\n\n";
+      if(note.mode==="table"&&note.table?.cols?.length){
+        const cols=note.table.cols;
+        md+=cols.map(c=>c.name).join(" | ")+"\n";
+        md+=cols.map(()=>"---").join(" | ")+"\n";
+        note.table.rows.forEach(r=>{md+=cols.map(c=>r.cells[c.id]||"").join(" | ")+"\n";});
+      }else{md+=note.content||"";}
+      return md+"\n\n---\n\n";
+    }
+    function notesToCsvRows(notes,folders){
+      const rows=[["Título","Conteúdo","Tags","Pasta","Data","Modo"]];
+      notes.forEach(n=>{
+        const folder=folders.find(f=>f.id===n.folderId);
+        let content=n.content||"";
+        if(n.mode==="table"&&n.table?.cols?.length)content="[Tabela] "+n.table.cols.map(c=>c.name).join("|");
+        rows.push([n.title,content,(n.tags||[]).join(";"),folder?.name||"",n.dateStr||"",n.mode||"text"]);
+      });
+      return rows.map(r=>r.map(cell=>`"${String(cell).replace(/"/g,'""')}"`).join(",")).join("\n");
+    }
+    function notesToTxt(notes,folders,scopeLabel){
+      let out=`CADERNO — ${scopeLabel}\nExportado em: ${getNow()}\n${"=".repeat(50)}\n\n`;
+      notes.forEach(n=>{
+        const folder=folders.find(f=>f.id===n.folderId);
+        out+=`NOTA: ${n.title}\nData: ${n.dateStr}`;
+        if(folder)out+=` | Pasta: ${folder.name}`;
+        if(n.tags?.length)out+=` | Tags: ${n.tags.join(", ")}`;
+        out+="\n"+"-".repeat(40)+"\n";
+        if(n.mode==="table"&&n.table?.cols?.length){
+          const cols=n.table.cols;
+          out+=cols.map(c=>c.name).join(" | ")+"\n";
+          n.table.rows.forEach(r=>{out+=cols.map(c=>r.cells[c.id]||"").join(" | ")+"\n";});
+        }else{out+=n.content||"(vazia)";}
+        out+="\n\n";
+      });
+      return out;
+    }
+    function printPdf(notes,folders,scopeLabel){
+      let html=`<html><head><meta charset="utf-8"><title>${scopeLabel}</title><style>
+        body{font-family:sans-serif;max-width:800px;margin:0 auto;padding:32px;color:#1a1917;}
+        h1{font-size:22px;font-weight:600;margin-bottom:4px;}
+        .meta{font-size:12px;color:#888;margin-bottom:16px;}
+        .note{margin-bottom:40px;border-bottom:1px solid #ddd;padding-bottom:24px;}
+        .tag{display:inline-block;background:#e0eefa;color:#1a6fb5;border-radius:20px;padding:2px 10px;font-size:11px;margin-right:4px;}
+        table{border-collapse:collapse;width:100%;font-size:13px;margin-top:8px;}
+        th,td{border:1px solid #ccc;padding:6px 10px;}
+        th{background:#f4f1ec;font-weight:600;}
+        pre{white-space:pre-wrap;font-family:inherit;font-size:14px;line-height:1.7;}
+        @media print{@page{margin:20mm;}}
+      </style></head><body>`;
+      html+=`<h2 style="font-size:14px;color:#888;font-weight:400;margin-bottom:32px;">Caderno — ${scopeLabel} · ${getNow()}</h2>`;
+      notes.forEach(n=>{
+        const folder=folders.find(f=>f.id===n.folderId);
+        html+=`<div class="note"><h1>${n.title}</h1><div class="meta">${n.dateStr}`;
+        if(folder)html+=` · 📁 ${folder.name}`;
+        html+=`</div>`;
+        if(n.tags?.length)html+=n.tags.map(tag=>`<span class="tag">${tag}</span>`).join("")+"<br><br>";
+        if(n.mode==="table"&&n.table?.cols?.length){
+          const cols=n.table.cols;
+          html+=`<table><thead><tr>${cols.map(c=>`<th>${c.name}</th>`).join("")}</tr></thead><tbody>`;
+          n.table.rows.forEach(r=>{html+=`<tr>${cols.map(c=>`<td>${r.cells[c.id]||""}</td>`).join("")}</tr>`;});
+          html+=`</tbody></table>`;
+        }else{html+=`<pre>${n.content||""}</pre>`;}
+        html+=`</div>`;
+      });
+      html+=`</body></html>`;
+      const w=window.open("","_blank");
+      w.document.write(html);w.document.close();
+      w.onload=()=>{w.focus();w.print();};
+    }
+
+    // ---- Export Modal ----
+    function ExportModal({tabs,data,activeTabId,activeFolderId,activeNote,onClose,dark}){
+      const t=themeVars(dark);
+      const [scope,setScope]=useState(activeNote?"note":activeFolderId?"folder":"tab");
+      const [fmt,setFmt]=useState("json");
+      const [selectedTab,setSelectedTab]=useState(activeTabId);
+      const [selectedFolder,setSelectedFolder]=useState(activeFolderId||"");
+      const tabData=data[selectedTab]||{folders:[],notes:[]};
+      const SCOPES=[
+        {id:"note",   label:"Nota individual", icon:"📄",disabled:!activeNote},
+        {id:"folder", label:"Pasta",           icon:"📁",disabled:false},
+        {id:"tab",    label:"Tema inteiro",    icon:"🗂"},
+        {id:"all",    label:"Tudo (backup)",   icon:"💾"},
+      ];
+      const FMTS=[
+        {id:"json",label:"JSON",   desc:"Backup estruturado, reimportável"},
+        {id:"md",  label:"Markdown",desc:"Compatível com Notion, Obsidian"},
+        {id:"txt", label:"TXT",    desc:"Texto puro"},
+        {id:"csv", label:"CSV",    desc:"Excel, Google Sheets"},
+        {id:"pdf", label:"PDF",    desc:"Imprime ou salva como PDF"},
+      ];
+      const getNotesAndLabel=()=>{
+        if(scope==="note")return{notes:[activeNote],folders:tabData.folders,label:activeNote?.title||"nota"};
+        if(scope==="folder"){
+          const fid=selectedFolder||activeFolderId;
+          const folder=tabData.folders.find(f=>f.id===fid);
+          return{notes:tabData.notes.filter(n=>n.folderId===fid),folders:tabData.folders,label:folder?.name||"pasta"};
+        }
+        if(scope==="tab"){
+          const tab=tabs.find(tb=>tb.id===selectedTab);
+          return{notes:tabData.notes,folders:tabData.folders,label:tab?.label||"tema"};
+        }
+        const allNotes=tabs.flatMap(tab=>data[tab.id]?.notes||[]);
+        const allFolders=tabs.flatMap(tab=>data[tab.id]?.folders||[]);
+        return{notes:allNotes,folders:allFolders,label:"backup_completo"};
+      };
+      const handleExport=()=>{
+        const{notes,folders:flds,label}=getNotesAndLabel();
+        const slug=label.toLowerCase().replace(/\s+/g,"_");
+        if(fmt==="json"){
+          if(scope==="all")download("caderno_backup.json",JSON.stringify({tabs,data},null,2),"application/json");
+          else download(`${slug}.json`,JSON.stringify({notes,folders:flds},null,2),"application/json");
+        }else if(fmt==="md"){download(`${slug}.md`,notes.map(n=>noteToMd(n,flds.find(f=>f.id===n.folderId)?.name)).join(""),"text/markdown");}
+        else if(fmt==="txt"){download(`${slug}.txt`,notesToTxt(notes,flds,label),"text/plain");}
+        else if(fmt==="csv"){download(`${slug}.csv`,"\uFEFF"+notesToCsvRows(notes,flds),"text/csv");}
+        else if(fmt==="pdf"){printPdf(notes,flds,label);}
+        onClose();
+      };
+      const radio=(val,cur,set,label,desc)=>(
+        <label key={val} onClick={()=>set(val)} style={{display:"flex",alignItems:"flex-start",gap:10,padding:"8px 10px",borderRadius:8,cursor:"pointer",border:`0.5px solid ${cur===val?t.info:t.border}`,background:cur===val?t.infoBg:"transparent",marginBottom:6}}>
+          <input type="radio" checked={cur===val} onChange={()=>set(val)} style={{marginTop:2,accentColor:t.info}}/>
+          <div><div style={{fontSize:13,fontWeight:cur===val?500:400,color:t.text}}>{label}</div>
+          {desc&&<div style={{fontSize:11,color:t.textS,marginTop:1}}>{desc}</div>}</div>
+        </label>
+      );
+      const{notes}=getNotesAndLabel();
+      return(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000}}>
+          <div style={{background:t.bgS,border:`0.5px solid ${t.border}`,borderRadius:12,padding:24,width:"min(560px,95vw)",maxHeight:"90vh",overflow:"auto"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:20}}>
+              <span style={{fontWeight:500,fontSize:16,color:t.text}}>Exportar notas</span>
+              <button onClick={onClose} style={{background:"none",border:"none",fontSize:20,cursor:"pointer",color:t.textS}}>×</button>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:20,marginBottom:20}}>
+              <div>
+                <div style={{fontSize:11,fontWeight:500,color:t.textT,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:8}}>O que exportar</div>
+                {SCOPES.map(s=>(
+                  <label key={s.id} onClick={()=>!s.disabled&&setScope(s.id)}
+                    style={{display:"flex",alignItems:"center",gap:10,padding:"8px 10px",borderRadius:8,cursor:s.disabled?"not-allowed":"pointer",border:`0.5px solid ${scope===s.id?t.info:t.border}`,background:scope===s.id?t.infoBg:"transparent",marginBottom:6,opacity:s.disabled?0.4:1}}>
+                    <input type="radio" checked={scope===s.id} onChange={()=>!s.disabled&&setScope(s.id)} disabled={s.disabled} style={{accentColor:t.info}}/>
+                    <span style={{fontSize:13,fontWeight:scope===s.id?500:400,color:t.text}}>{s.icon} {s.label}</span>
+                  </label>
+                ))}
+                {(scope==="tab"||scope==="folder")&&(
+                  <div style={{marginTop:8}}>
+                    <div style={{fontSize:11,color:t.textS,marginBottom:4}}>Tema:</div>
+                    <select value={selectedTab} onChange={e=>{setSelectedTab(e.target.value);setSelectedFolder("");}}
+                      style={{width:"100%",fontSize:13,padding:"5px 8px",borderRadius:8,border:`0.5px solid ${t.border}`,background:t.bgT,color:t.text,marginBottom:6}}>
+                      {tabs.map(tb=><option key={tb.id} value={tb.id}>{tb.icon} {tb.label}</option>)}
+                    </select>
+                    {scope==="folder"&&(
+                      <>
+                        <div style={{fontSize:11,color:t.textS,marginBottom:4}}>Pasta:</div>
+                        <select value={selectedFolder} onChange={e=>setSelectedFolder(e.target.value)}
+                          style={{width:"100%",fontSize:13,padding:"5px 8px",borderRadius:8,border:`0.5px solid ${t.border}`,background:t.bgT,color:t.text}}>
+                          <option value="">Selecione uma pasta</option>
+                          {(data[selectedTab]?.folders||[]).map(f=><option key={f.id} value={f.id}>{f.icon||"📁"} {f.name}</option>)}
+                        </select>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+              <div>
+                <div style={{fontSize:11,fontWeight:500,color:t.textT,textTransform:"uppercase",letterSpacing:"0.05em",marginBottom:8}}>Formato</div>
+                {FMTS.map(f=>radio(f.id,fmt,setFmt,f.label,f.desc))}
+              </div>
+            </div>
+            <div style={{fontSize:12,color:t.textS,background:t.bgT,borderRadius:8,padding:"8px 12px",marginBottom:16}}>
+              {notes.length===0?"Nenhuma nota no escopo selecionado.":`${notes.length} nota${notes.length!==1?"s":""} será${notes.length!==1?"o":""} exportada${notes.length!==1?"s":""}.`}
+              {fmt==="pdf"&&" O navegador abrirá a janela de impressão."}
+            </div>
+            <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+              <button onClick={onClose} style={{fontSize:13,padding:"7px 16px",borderRadius:8,border:`0.5px solid ${t.border}`,background:"none",cursor:"pointer",color:t.textS}}>Cancelar</button>
+              <button onClick={handleExport} style={{fontSize:13,padding:"7px 16px",borderRadius:8,border:"none",background:t.info,color:"#fff",cursor:"pointer",fontWeight:500}}>{fmt==="pdf"?"Abrir PDF":"Baixar"}</button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ---- Import Modal ----
+    function ImportModal({onImport,onClose,dark}){
+      const t=themeVars(dark);
+      const [error,setError]=useState("");
+      const ref=useRef();
+      const handleFile=e=>{
+        const file=e.target.files[0];if(!file)return;
+        const reader=new FileReader();
+        reader.onload=ev=>{
+          try{
+            const parsed=JSON.parse(ev.target.result);
+            if(parsed.tabs&&parsed.data){onImport(parsed);onClose();}
+            else{setError("Arquivo inválido. Use um backup completo exportado pelo Caderno.");}
+          }catch{setError("Não foi possível ler o arquivo.");}
+        };
+        reader.readAsText(file);
+      };
+      return(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000}}>
+          <div style={{background:t.bgS,border:`0.5px solid ${t.border}`,borderRadius:12,padding:24,width:"min(400px,95vw)"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+              <span style={{fontWeight:500,fontSize:16,color:t.text}}>Importar backup</span>
+              <button onClick={onClose} style={{background:"none",border:"none",fontSize:20,cursor:"pointer",color:t.textS}}>×</button>
+            </div>
+            <p style={{fontSize:13,color:t.textS,lineHeight:1.6,marginBottom:16}}>Selecione um JSON de backup completo. Atenção: substituirá todos os dados atuais.</p>
+            <div onClick={()=>ref.current.click()} style={{border:`1.5px dashed ${t.border}`,borderRadius:10,padding:"24px 16px",textAlign:"center",cursor:"pointer",marginBottom:12,color:t.textS,fontSize:13}}
+              onMouseEnter={e=>e.currentTarget.style.borderColor=t.info}
+              onMouseLeave={e=>e.currentTarget.style.borderColor=t.border}>
+              Clique para selecionar o arquivo JSON
+              <input ref={ref} type="file" accept=".json" onChange={handleFile} style={{display:"none"}}/>
+            </div>
+            {error&&<div style={{fontSize:12,color:"#d04040",background:"#fff0f0",padding:"8px 12px",borderRadius:8,marginBottom:12}}>{error}</div>}
+            <div style={{display:"flex",justifyContent:"flex-end"}}>
+              <button onClick={onClose} style={{fontSize:13,padding:"7px 16px",borderRadius:8,border:`0.5px solid ${t.border}`,background:"none",cursor:"pointer",color:t.textS}}>Cancelar</button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ---- EmojiPicker ----
+    function EmojiPicker({current,onPick,dark}){
+      const t=themeVars(dark);
+      return(
+        <div style={{background:t.bgS,border:`0.5px solid ${t.border}`,borderRadius:10,padding:10,display:"flex",flexWrap:"wrap",gap:6,width:220}}>
+          {EMOJI_LIST.map(e=>(
+            <button key={e} onClick={()=>onPick(e)} style={{fontSize:20,background:current===e?t.bgT:"none",border:"none",borderRadius:6,cursor:"pointer",padding:"4px 6px",outline:current===e?`2px solid ${t.info}`:"none"}}>{e}</button>
+          ))}
+        </div>
+      );
+    }
+
+    // ---- DotsMenu ----
+    function DotsMenu({options,dark}){
+      const [open,setOpen]=useState(false);
+      const [subMenu,setSubMenu]=useState(null);
+      const ref=useRef();
+      const t=themeVars(dark);
+      useEffect(()=>{
+        if(!open){setSubMenu(null);return;}
+        const h=e=>{
+          const clickedInMenu=ref.current&&ref.current.contains(e.target);
+          const clickedInSub=subMenu&&e.target.closest("[data-submenu]");
+          if(!clickedInMenu&&!clickedInSub){setOpen(false);setSubMenu(null);}
+        };
+        document.addEventListener("mousedown",h);
+        return()=>document.removeEventListener("mousedown",h);
+      },[open,subMenu]);
+      const openSub=(e,opt)=>{
+        if(subMenu?.key===opt.label){setSubMenu(null);return;}
+        const rect=e.currentTarget.getBoundingClientRect();
+        setSubMenu({key:opt.label,content:opt.sub,x:rect.right+6,y:rect.top});
+      };
+      return(
+        <div ref={ref} style={{position:"relative"}} onClick={e=>e.stopPropagation()}>
+          <button onClick={e=>{e.stopPropagation();setOpen(o=>!o);setSubMenu(null);}}
+            style={{background:"none",border:"none",cursor:"pointer",padding:"2px 5px",borderRadius:6,color:"inherit",opacity:0.55,fontSize:16,lineHeight:1}}>···</button>
+          {open&&(
+            <div style={{position:"absolute",right:0,top:"100%",zIndex:300,background:t.bgS,border:`0.5px solid ${t.border}`,borderRadius:8,minWidth:120,boxShadow:"0 4px 16px rgba(0,0,0,0.18)"}}>
+              {options.map(opt=>(
+                <button key={opt.label} onClick={e=>{e.stopPropagation();if(opt.sub){openSub(e,opt);}else{setOpen(false);setSubMenu(null);opt.action();}}}
+                  style={{display:"flex",justifyContent:"space-between",alignItems:"center",width:"100%",padding:"9px 14px",background:"none",border:"none",cursor:"pointer",textAlign:"left",fontSize:13,color:opt.danger?"#d04040":t.text}}
+                  onMouseEnter={e=>e.currentTarget.style.background=t.bgT}
+                  onMouseLeave={e=>e.currentTarget.style.background="none"}>
+                  <span>{opt.label}</span>{opt.sub&&<span style={{fontSize:11,opacity:0.5}}>▶</span>}
+                </button>
+              ))}
+            </div>
+          )}
+          {subMenu&&(
+            <div data-submenu="true" style={{position:"fixed",left:subMenu.x,top:subMenu.y,zIndex:9999,borderRadius:10,boxShadow:"0 4px 20px rgba(0,0,0,0.22)"}}
+              onClick={e=>{e.stopPropagation();setOpen(false);setSubMenu(null);}}>
+              {subMenu.content}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    // ---- ColorPicker ----
+    function ColorPicker({value,onChange,colors}){
+      return(
+        <div style={{display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
+          <span style={{fontSize:12,opacity:0.6,marginRight:2}}>Cor:</span>
+          {colors.map(c=>(
+            <button key={c.id} onClick={()=>onChange(c.id)}
+              style={{width:22,height:22,borderRadius:"50%",border:value===c.id?"3px solid #fff":`1.5px solid ${c.border}`,background:c.bg,cursor:"pointer",padding:0,outline:value===c.id?`2px solid ${c.border}`:"none",transform:value===c.id?"scale(1.2)":"scale(1)",transition:"transform 0.1s"}}/>
+          ))}
+        </div>
+      );
+    }
+
+    // ---- useTextHistory ----
+    function useTextHistory(initial){
+      const [history,setHistory]=useState([initial]);
+      const [idx,setIdx]=useState(0);
+      const value=history[idx];
+      const push=useCallback((val)=>{
+        if(val===history[idx])return;
+        setHistory(h=>[...h.slice(0,idx+1),val]);
+        setIdx(i=>i+1);
+      },[history,idx]);
+      const undo=useCallback(()=>{if(idx>0)setIdx(i=>i-1);},[idx]);
+      const redo=useCallback(()=>{if(idx<history.length-1)setIdx(i=>i+1);},[idx,history.length]);
+      return{value,push,undo,redo,canUndo:idx>0,canRedo:idx<history.length-1};
+    }
+
+    // ---- TableEditor ----
+    function TableEditor({table,onChange,col}){
+      const addCol=()=>{const id=genId();onChange({cols:[...table.cols,{id,name:`Coluna ${table.cols.length+1}`}],rows:table.rows.map(r=>({...r,cells:{...r.cells,[id]:""}}))});};
+      const addRow=()=>{const cells={};table.cols.forEach(c=>{cells[c.id]="";});onChange({...table,rows:[...table.rows,{id:genId(),cells}]});};
+      const delCol=cid=>onChange({cols:table.cols.filter(c=>c.id!==cid),rows:table.rows.map(r=>{const cells={...r.cells};delete cells[cid];return{...r,cells};})});
+      const delRow=rid=>onChange({...table,rows:table.rows.filter(r=>r.id!==rid)});
+      const updColName=(cid,val)=>onChange({...table,cols:table.cols.map(c=>c.id===cid?{...c,name:val}:c)});
+      const updCell=(rid,cid,val)=>onChange({...table,rows:table.rows.map(r=>r.id===rid?{...r,cells:{...r.cells,[cid]:val}}:r)});
+      const cS={border:`0.5px solid ${col.border}`,padding:0};
+      const tS={...cS,padding:"4px 6px",background:"rgba(0,0,0,0.15)",minWidth:100,fontWeight:500,color:col.text};
+      return(
+        <div style={{overflowX:"auto",marginTop:8}}>
+          <table style={{borderCollapse:"collapse",width:"100%",fontSize:13}}>
+            <thead><tr>
+              {table.cols.map(c=>(
+                <th key={c.id} style={tS}>
+                  <div style={{display:"flex",alignItems:"center",gap:4}}>
+                    <input value={c.name} onChange={e=>updColName(c.id,e.target.value)} style={{border:"none",background:"transparent",fontSize:13,fontWeight:500,width:"100%",color:col.text,outline:"none"}}/>
+                    <button onClick={()=>delCol(c.id)} style={{background:"none",border:"none",cursor:"pointer",color:col.text,opacity:0.5,fontSize:14,padding:0}}>×</button>
+                  </div>
+                </th>
+              ))}
+              <th style={{...tS,width:32}}></th>
+            </tr></thead>
+            <tbody>
+              {table.rows.map(row=>(
+                <tr key={row.id}>
+                  {table.cols.map(c=>(<td key={c.id} style={cS}><input value={row.cells[c.id]||""} onChange={e=>updCell(row.id,c.id,e.target.value)} style={{border:"none",background:"transparent",fontSize:13,padding:"4px 6px",width:"100%",color:col.text,outline:"none",boxSizing:"border-box"}}/></td>))}
+                  <td style={{...cS,textAlign:"center"}}><button onClick={()=>delRow(row.id)} style={{background:"none",border:"none",cursor:"pointer",color:col.text,opacity:0.5,fontSize:14,padding:"2px 6px"}}>×</button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div style={{display:"flex",gap:8,marginTop:8}}>
+            {["+ Linha","+ Coluna"].map((lbl,i)=>(<button key={lbl} onClick={i===0?addRow:addCol} style={{fontSize:12,padding:"4px 10px",borderRadius:6,border:`0.5px solid ${col.border}`,background:"rgba(0,0,0,0.1)",cursor:"pointer",color:col.text}}>{lbl}</button>))}
+          </div>
+        </div>
+      );
+    }
+
+    // ---- NoteModal ----
+    function NoteModal({note,folders,onSave,onClose,dark}){
+      const colors=NOTE_COLORS[dark?"dark":"light"];
+      const [title,setTitle]=useState(note?.title||"");
+      const contentHist=useTextHistory(note?.content||"");
+      const [tags,setTags]=useState(note?.tags?.join(", ")||"");
+      const [folderId,setFolderId]=useState(note?.folderId||"");
+      const [mode,setMode]=useState(note?.mode||"text");
+      const [colorId,setColorId]=useState(note?.colorId||"default");
+      const [table,setTable]=useState(note?.table||{cols:[{id:genId(),name:"Coluna 1"},{id:genId(),name:"Coluna 2"}],rows:[]});
+      const timerRef=useRef(null);
+      const col=colors.find(c=>c.id===colorId)||colors[0];
+      const inp={border:`0.5px solid ${col.border}`,background:"rgba(0,0,0,0.15)",color:col.text,borderRadius:8,outline:"none"};
+      const btnU=disabled=>({fontSize:12,padding:"4px 9px",borderRadius:6,border:`0.5px solid ${col.border}`,background:disabled?"rgba(0,0,0,0.05)":"rgba(0,0,0,0.15)",color:disabled?col.text+"55":col.text,cursor:disabled?"default":"pointer"});
+      return(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000}}>
+          <div style={{background:col.bg,border:`1.5px solid ${col.border}`,borderRadius:12,padding:24,width:"min(680px,95vw)",maxHeight:"90vh",overflow:"auto"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+              <span style={{fontWeight:500,fontSize:15,color:col.text}}>{note?.id?"Editar nota":"Nova nota"}</span>
+              <button onClick={onClose} style={{background:"none",border:"none",fontSize:20,cursor:"pointer",color:col.text,opacity:0.6}}>×</button>
+            </div>
+            <input placeholder="Título da nota" value={title} onChange={e=>setTitle(e.target.value)} style={{...inp,width:"100%",fontSize:15,fontWeight:500,marginBottom:12,padding:"8px 10px",boxSizing:"border-box"}}/>
+            <div style={{display:"flex",gap:8,marginBottom:12,flexWrap:"wrap"}}>
+              <select value={folderId} onChange={e=>setFolderId(e.target.value)} style={{...inp,fontSize:13,padding:"5px 8px",flex:1,minWidth:120}}>
+                <option value="">Sem pasta</option>
+                {folders.map(f=><option key={f.id} value={f.id}>{f.icon||"📁"} {f.name}</option>)}
+              </select>
+              <input placeholder="Tags (separadas por vírgula)" value={tags} onChange={e=>setTags(e.target.value)} style={{...inp,fontSize:13,padding:"5px 8px",flex:2,minWidth:160}}/>
+            </div>
+            <div style={{marginBottom:12,color:col.text}}><ColorPicker value={colorId} onChange={setColorId} colors={colors}/></div>
+            <div style={{display:"flex",gap:8,marginBottom:12,alignItems:"center",flexWrap:"wrap"}}>
+              {["text","table"].map(m=>(<button key={m} onClick={()=>setMode(m)} style={{fontSize:13,padding:"5px 14px",borderRadius:8,cursor:"pointer",border:`0.5px solid ${col.border}`,background:mode===m?col.border:"rgba(0,0,0,0.15)",color:mode===m?"#fff":col.text,fontWeight:mode===m?500:400}}>{m==="text"?"Texto":"Tabela"}</button>))}
+              {mode==="text"&&(<div style={{display:"flex",gap:6,marginLeft:"auto"}}><button onClick={contentHist.undo} disabled={!contentHist.canUndo} style={btnU(!contentHist.canUndo)}>↩ Desfazer</button><button onClick={contentHist.redo} disabled={!contentHist.canRedo} style={btnU(!contentHist.canRedo)}>↪ Refazer</button></div>)}
+            </div>
+            {mode==="text"?(
+              <textarea placeholder="Escreva sua nota aqui..." value={contentHist.value}
+                onChange={e=>{clearTimeout(timerRef.current);timerRef.current=setTimeout(()=>contentHist.push(e.target.value),400);}}
+                onKeyDown={e=>{if((e.ctrlKey||e.metaKey)&&e.key==="z"&&!e.shiftKey){e.preventDefault();contentHist.undo();}if((e.ctrlKey||e.metaKey)&&(e.key==="y"||(e.key==="z"&&e.shiftKey))){e.preventDefault();contentHist.redo();}}}
+                style={{...inp,width:"100%",minHeight:180,fontSize:14,padding:"8px 10px",fontFamily:"inherit",lineHeight:1.6,boxSizing:"border-box"}}/>
+            ):(<TableEditor table={table} onChange={setTable} col={col}/>)}
+            <div style={{display:"flex",gap:8,justifyContent:"flex-end",marginTop:16}}>
+              <button onClick={onClose} style={{fontSize:13,padding:"7px 16px",borderRadius:8,border:`0.5px solid ${col.border}`,background:"rgba(0,0,0,0.15)",cursor:"pointer",color:col.text}}>Cancelar</button>
+              <button onClick={()=>{if(!title.trim())return;onSave({title,content:contentHist.value,tags:tags.split(",").map(t=>t.trim()).filter(Boolean),folderId,mode,table,colorId});}}
+                disabled={!title.trim()} style={{fontSize:13,padding:"7px 16px",borderRadius:8,border:"none",background:col.border,color:"#fff",cursor:"pointer",fontWeight:500,opacity:title.trim()?1:0.4}}>Salvar</button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ---- RenameModal ----
+    function RenameModal({title:modalTitle,initialName,initialIcon,onSave,onClose,dark}){
+      const t=themeVars(dark);
+      const [name,setName]=useState(initialName);
+      const [icon,setIcon]=useState(initialIcon||"📁");
+      const [showEmoji,setShowEmoji]=useState(false);
+      return(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.45)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000}}>
+          <div style={{background:t.bgS,border:`0.5px solid ${t.border}`,borderRadius:12,padding:24,width:"min(360px,90vw)"}}>
+            <div style={{fontWeight:500,fontSize:15,color:t.text,marginBottom:14}}>{modalTitle}</div>
+            <div style={{display:"flex",gap:8,marginBottom:14}}>
+              <div style={{position:"relative"}}>
+                <button onClick={()=>setShowEmoji(s=>!s)} style={{fontSize:22,background:t.bgT,border:`0.5px solid ${t.border}`,borderRadius:8,padding:"6px 10px",cursor:"pointer"}}>{icon}</button>
+                {showEmoji&&(<div style={{position:"absolute",top:"110%",left:0,zIndex:400}}><EmojiPicker current={icon} onPick={e=>{setIcon(e);setShowEmoji(false);}} dark={dark}/></div>)}
+              </div>
+              <input autoFocus value={name} onChange={e=>setName(e.target.value)}
+                onKeyDown={e=>{if(e.key==="Enter"&&name.trim())onSave(name.trim(),icon);if(e.key==="Escape")onClose();}}
+                style={{flex:1,fontSize:14,padding:"8px 10px",borderRadius:8,border:`0.5px solid ${t.border}`,background:t.bgT,color:t.text,outline:"none",boxSizing:"border-box"}}/>
+            </div>
+            <div style={{display:"flex",gap:8,justifyContent:"flex-end"}}>
+              <button onClick={onClose} style={{fontSize:13,padding:"7px 14px",borderRadius:8,border:`0.5px solid ${t.border}`,background:"none",cursor:"pointer",color:t.textS}}>Cancelar</button>
+              <button onClick={()=>name.trim()&&onSave(name.trim(),icon)} style={{fontSize:13,padding:"7px 14px",borderRadius:8,border:"none",background:t.info,color:"#fff",cursor:"pointer",fontWeight:500}}>Salvar</button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    // ---- Main App ----
+    function App(){
+      const [state,setState]=useState(loadState);
+      const [dark,setDark]=useState(()=>window.matchMedia("(prefers-color-scheme: dark)").matches);
+      const [activeTabId,setActiveTabId]=useState(()=>loadState().tabs[0]?.id);
+      const [activeFolderId,setActiveFolderId]=useState(null);
+      const [search,setSearch]=useState("");
+      const [sortBy,setSortBy]=useState("newest");
+      const [filterTag,setFilterTag]=useState("");
+      const [modalNote,setModalNote]=useState(null);
+      const [modalOpen,setModalOpen]=useState(false);
+      const [viewNote,setViewNote]=useState(null);
+      const [draggingNoteId,setDraggingNoteId]=useState(null);
+      const [dragOverFolderId,setDragOverFolderId]=useState(null);
+      const [renameModal,setRenameModal]=useState(null);
+      const [addingFolder,setAddingFolder]=useState(false);
+      const [newFolderName,setNewFolderName]=useState("");
+      const [addingTab,setAddingTab]=useState(false);
+      const [newTabName,setNewTabName]=useState("");
+      const [exportOpen,setExportOpen]=useState(false);
+      const [importOpen,setImportOpen]=useState(false);
+      const [sidebarOpen,setSidebarOpen]=useState(false);
+      const isMobile=window.innerWidth<640;
+
+      const{tabs,data}=state;
+      useEffect(()=>{saveState(state);},[state]);
+
+      const updateState=upd=>setState(s=>({...s,...upd}));
+      const updateTabData=(tabId,upd)=>setState(s=>({...s,data:{...s.data,[tabId]:{...s.data[tabId],...upd}}}));
+
+      const activeTab=tabs.find(t=>t.id===activeTabId)||tabs[0];
+      const tabData=data[activeTab?.id]||{folders:[],notes:[]};
+      const folders=tabData.folders;
+      const allNotes=tabData.notes;
+      const allTags=[...new Set(allNotes.flatMap(n=>n.tags||[]))];
+      const colors=NOTE_COLORS[dark?"dark":"light"];
+      const t=themeVars(dark);
+
+      let visibleNotes=allNotes.filter(n=>{
+        const inFolder=activeFolderId?n.folderId===activeFolderId:true;
+        const matchSearch=!search||n.title.toLowerCase().includes(search.toLowerCase())||(n.content||"").toLowerCase().includes(search.toLowerCase());
+        const matchTag=!filterTag||(n.tags||[]).includes(filterTag);
+        return inFolder&&matchSearch&&matchTag;
+      });
+      if(sortBy==="newest")visibleNotes=[...visibleNotes].sort((a,b)=>b.createdAt-a.createdAt);
+      else if(sortBy==="oldest")visibleNotes=[...visibleNotes].sort((a,b)=>a.createdAt-b.createdAt);
+      else visibleNotes=[...visibleNotes].sort((a,b)=>a.title.localeCompare(b.title));
+
+      const openNewNote=()=>{setModalNote(null);setModalOpen(true);};
+      const openEditNote=note=>{setModalNote(note);setModalOpen(true);};
+      const handleSaveNote=fields=>{
+        if(modalNote?.id)updateTabData(activeTab.id,{notes:allNotes.map(n=>n.id===modalNote.id?{...n,...fields}:n)});
+        else updateTabData(activeTab.id,{notes:[{id:genId(),...fields,createdAt:Date.now(),dateStr:getNow()},...allNotes]});
+        setModalOpen(false);
+      };
+      const deleteNote=id=>{updateTabData(activeTab.id,{notes:allNotes.filter(n=>n.id!==id)});setViewNote(null);};
+      const addFolder=()=>{
+        if(!newFolderName.trim())return;
+        updateTabData(activeTab.id,{folders:[...folders,{id:genId(),name:newFolderName.trim(),icon:"📁"}]});
+        setNewFolderName("");setAddingFolder(false);
+      };
+      const deleteFolder=fid=>{
+        updateTabData(activeTab.id,{folders:folders.filter(f=>f.id!==fid),notes:allNotes.map(n=>n.folderId===fid?{...n,folderId:""}:n)});
+        if(activeFolderId===fid)setActiveFolderId(null);
+      };
+      const renameFolder=(fid,name,icon)=>{updateTabData(activeTab.id,{folders:folders.map(f=>f.id===fid?{...f,name,icon}:f)});setRenameModal(null);};
+      const addTab=()=>{
+        if(!newTabName.trim())return;
+        const id=genId();
+        updateState({tabs:[...tabs,{id,label:newTabName.trim(),icon:"⭐"}],data:{...data,[id]:{folders:[],notes:[]}}});
+        setActiveTabId(id);setNewTabName("");setAddingTab(false);setActiveFolderId(null);
+      };
+      const deleteTab=id=>{
+        if(tabs.length<=1)return;
+        const newTabs=tabs.filter(t=>t.id!==id);
+        const newData={...data};delete newData[id];
+        updateState({tabs:newTabs,data:newData});
+        if(activeTabId===id){setActiveTabId(newTabs[0].id);setActiveFolderId(null);}
+      };
+      const renameTab=(id,label,icon)=>{updateState({tabs:tabs.map(t=>t.id===id?{...t,label,icon}:t)});setRenameModal(null);};
+      const onDragStart=(e,noteId)=>{setDraggingNoteId(noteId);e.dataTransfer.effectAllowed="move";};
+      const onDragEnd=()=>{setDraggingNoteId(null);setDragOverFolderId(null);};
+      const onFolderDragOver=(e,fid)=>{e.preventDefault();e.dataTransfer.dropEffect="move";setDragOverFolderId(fid);};
+      const onFolderDrop=(e,fid)=>{e.preventDefault();if(!draggingNoteId)return;updateTabData(activeTab.id,{notes:allNotes.map(n=>n.id===draggingNoteId?{...n,folderId:fid}:n)});setDraggingNoteId(null);setDragOverFolderId(null);};
+
+      const sideBtn=active=>({display:"flex",alignItems:"center",gap:8,width:"100%",padding:"7px 10px",borderRadius:8,border:"none",cursor:"pointer",textAlign:"left",fontSize:13,fontWeight:active?500:400,background:active?t.bgT:"transparent",color:active?t.text:t.textS,marginBottom:2});
+      const ctrlStyle={fontSize:13,padding:"6px 8px",borderRadius:8,border:`0.5px solid ${t.border}`,background:t.bgS,color:t.text};
+
+      const sidebar=(
+        <div style={{width:isMobile?"100%":220,borderRight:isMobile?"none":`0.5px solid ${t.border}`,display:"flex",flexDirection:"column",height:"100%",background:t.bgS}}>
+          <div style={{padding:"14px 12px 8px",display:"flex",justifyContent:"space-between",alignItems:"center",borderBottom:`0.5px solid ${t.border}`}}>
+            <span style={{fontWeight:500,fontSize:15,color:t.text}}>Caderno</span>
+            <div style={{display:"flex",gap:6}}>
+              <button onClick={()=>setDark(d=>!d)} style={{background:t.bgT,border:`0.5px solid ${t.border}`,borderRadius:20,padding:"3px 10px",cursor:"pointer",fontSize:12,color:t.textS}}>{dark?"☀":"☾"}</button>
+              {isMobile&&<button onClick={()=>setSidebarOpen(false)} style={{background:t.bgT,border:`0.5px solid ${t.border}`,borderRadius:20,padding:"3px 10px",cursor:"pointer",fontSize:12,color:t.textS}}>✕</button>}
+            </div>
+          </div>
+          <div style={{padding:"8px 8px 0",overflowY:"auto",flex:1,display:"flex",flexDirection:"column"}}>
+            <div style={{fontSize:11,color:t.textT,padding:"4px 8px 6px",textTransform:"uppercase",letterSpacing:"0.05em",fontWeight:500}}>Temas</div>
+            {tabs.map(tab=>(
+              <div key={tab.id} style={{display:"flex",alignItems:"center",gap:2,marginBottom:2}}>
+                <button onClick={()=>{setActiveTabId(tab.id);setActiveFolderId(null);setFilterTag("");if(isMobile)setSidebarOpen(false);}} style={{...sideBtn(activeTabId===tab.id),flex:1,marginBottom:0}}>
+                  <span style={{fontSize:14}}>{tab.icon}</span>{tab.label}
+                </button>
+                <div style={{color:t.textS}}>
+                  <DotsMenu dark={dark} options={[
+                    {label:"Renomear",action:()=>setRenameModal({type:"tab",id:tab.id,name:tab.label,icon:tab.icon||"⭐"})},
+                    {label:"Ícone",sub:<EmojiPicker current={tab.icon} onPick={emoji=>updateState({tabs:tabs.map(t=>t.id===tab.id?{...t,icon:emoji}:t)})} dark={dark}/>},
+                    {label:"Excluir",danger:true,action:()=>{if(tabs.length>1)deleteTab(tab.id);}},
+                  ]}/>
+                </div>
+              </div>
+            ))}
+            {addingTab?(
+              <div style={{display:"flex",gap:4,padding:"4px 0 6px"}}>
+                <input autoFocus value={newTabName} onChange={e=>setNewTabName(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")addTab();if(e.key==="Escape")setAddingTab(false);}} placeholder="Nome do tema" style={{flex:1,fontSize:12,padding:"4px 6px",borderRadius:6,border:`0.5px solid ${t.border}`,background:t.bgT,color:t.text,minWidth:0,outline:"none"}}/>
+                <button onClick={addTab} style={{fontSize:12,padding:"4px 8px",borderRadius:6,border:"none",background:t.info,color:"#fff",cursor:"pointer"}}>OK</button>
+                <button onClick={()=>setAddingTab(false)} style={{fontSize:12,padding:"4px 8px",borderRadius:6,border:`0.5px solid ${t.border}`,background:"none",cursor:"pointer",color:t.textS}}>✕</button>
+              </div>
+            ):(
+              <button onClick={()=>setAddingTab(true)} style={{width:"100%",padding:"6px 10px",borderRadius:8,border:`0.5px dashed ${t.border}`,background:"none",cursor:"pointer",fontSize:12,color:t.textT,textAlign:"left",marginBottom:4}}>+ Novo tema</button>
+            )}
+            <div style={{borderTop:`0.5px solid ${t.border}`,margin:"4px 0"}}/>
+            <div style={{fontSize:11,color:t.textT,padding:"4px 8px 6px",textTransform:"uppercase",letterSpacing:"0.05em",fontWeight:500}}>Pastas</div>
+            <div onDragOver={e=>onFolderDragOver(e,"")} onDrop={e=>onFolderDrop(e,"")} onDragLeave={()=>setDragOverFolderId(null)} style={{borderRadius:8,outline:dragOverFolderId===""?`2px dashed ${t.info}`:"2px dashed transparent",marginBottom:2}}>
+              <button onClick={()=>{setActiveFolderId(null);if(isMobile)setSidebarOpen(false);}} style={{...sideBtn(!activeFolderId),justifyContent:"space-between"}}>
+                <span>Todas</span><span style={{fontSize:11,color:t.textT}}>{allNotes.length}</span>
+              </button>
+            </div>
+            {folders.map(f=>{
+              const isOver=dragOverFolderId===f.id;
+              return(
+                <div key={f.id} onDragOver={e=>onFolderDragOver(e,f.id)} onDrop={e=>onFolderDrop(e,f.id)} onDragLeave={()=>setDragOverFolderId(null)}
+                  style={{borderRadius:8,outline:isOver?`2px dashed ${t.info}`:"2px dashed transparent",marginBottom:2,background:isOver?t.infoBg:"transparent",transition:"background 0.15s"}}>
+                  <div style={{display:"flex",alignItems:"center",gap:2}}>
+                    <button onClick={()=>{setActiveFolderId(f.id);if(isMobile)setSidebarOpen(false);}} style={{...sideBtn(activeFolderId===f.id),flex:1,marginBottom:0,justifyContent:"space-between"}}>
+                      <span>{f.icon||"📁"} {f.name}</span><span style={{fontSize:11,color:t.textT}}>{allNotes.filter(n=>n.folderId===f.id).length}</span>
+                    </button>
+                    <div style={{color:t.textS}}>
+                      <DotsMenu dark={dark} options={[
+                        {label:"Renomear",action:()=>setRenameModal({type:"folder",id:f.id,name:f.name,icon:f.icon||"📁"})},
+                        {label:"Ícone",sub:<EmojiPicker current={f.icon||"📁"} onPick={emoji=>updateTabData(activeTab.id,{folders:folders.map(fd=>fd.id===f.id?{...fd,icon:emoji}:fd)})} dark={dark}/>},
+                        {label:"Excluir",danger:true,action:()=>deleteFolder(f.id)},
+                      ]}/>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+            {addingFolder?(
+              <div style={{display:"flex",gap:4,padding:"4px 0 2px"}}>
+                <input autoFocus value={newFolderName} onChange={e=>setNewFolderName(e.target.value)} onKeyDown={e=>{if(e.key==="Enter")addFolder();if(e.key==="Escape")setAddingFolder(false);}} placeholder="Nome da pasta" style={{flex:1,fontSize:12,padding:"4px 6px",borderRadius:6,border:`0.5px solid ${t.border}`,background:t.bgT,color:t.text,minWidth:0,outline:"none"}}/>
+                <button onClick={addFolder} style={{fontSize:12,padding:"4px 8px",borderRadius:6,border:"none",background:t.info,color:"#fff",cursor:"pointer"}}>OK</button>
+                <button onClick={()=>{setAddingFolder(false);setNewFolderName("");}} style={{fontSize:12,padding:"4px 8px",borderRadius:6,border:`0.5px solid ${t.border}`,background:"none",cursor:"pointer",color:t.textS}}>✕</button>
+              </div>
+            ):(
+              <button onClick={()=>setAddingFolder(true)} style={{width:"100%",padding:"6px 10px",borderRadius:8,border:`0.5px dashed ${t.border}`,background:"none",cursor:"pointer",fontSize:12,color:t.textT,textAlign:"left",marginBottom:2}}>+ Nova pasta</button>
+            )}
+            {draggingNoteId&&<div style={{marginTop:8,fontSize:11,color:t.info,textAlign:"center",padding:"5px 0",borderRadius:8,border:`1px dashed ${t.info}`,opacity:0.8}}>Solte sobre uma pasta</div>}
+          </div>
+          <div style={{borderTop:`0.5px solid ${t.border}`,padding:"8px 10px",display:"flex",gap:6}}>
+            <button onClick={()=>setExportOpen(true)} style={{flex:1,fontSize:12,padding:"6px 0",borderRadius:8,border:`0.5px solid ${t.border}`,background:"none",cursor:"pointer",color:t.textS}}>⬆ Exportar</button>
+            <button onClick={()=>setImportOpen(true)} style={{flex:1,fontSize:12,padding:"6px 0",borderRadius:8,border:`0.5px solid ${t.border}`,background:"none",cursor:"pointer",color:t.textS}}>⬇ Importar</button>
+          </div>
+        </div>
+      );
+
+      return(
+        <div style={{display:"flex",height:"100%",fontFamily:"var(--font-sans)",fontSize:14,background:t.bg,color:t.text,position:"relative"}}>
+          {/* Mobile overlay */}
+          {isMobile&&sidebarOpen&&(
+            <div style={{position:"fixed",inset:0,zIndex:500,display:"flex"}}>
+              <div style={{width:"80%",maxWidth:280,height:"100%",overflow:"auto"}}>{sidebar}</div>
+              <div style={{flex:1,background:"rgba(0,0,0,0.4)"}} onClick={()=>setSidebarOpen(false)}/>
+            </div>
+          )}
+
+          {/* Desktop sidebar */}
+          {!isMobile&&sidebar}
+
+          {/* Main */}
+          <div style={{flex:1,display:"flex",flexDirection:"column",minWidth:0}}>
+            <div style={{padding:"10px 12px",borderBottom:`0.5px solid ${t.border}`,display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",background:t.bg}}>
+              {isMobile&&(
+                <button onClick={()=>setSidebarOpen(true)} style={{background:t.bgS,border:`0.5px solid ${t.border}`,borderRadius:8,padding:"6px 10px",cursor:"pointer",fontSize:16,color:t.textS,flexShrink:0}}>☰</button>
+              )}
+              <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar notas..." style={{...ctrlStyle,flex:1,minWidth:80,padding:"6px 10px"}}/>
+              <select value={filterTag} onChange={e=>setFilterTag(e.target.value)} style={{...ctrlStyle,maxWidth:120}}>
+                <option value="">Tags</option>
+                {allTags.map(t2=><option key={t2} value={t2}>{t2}</option>)}
+              </select>
+              <select value={sortBy} onChange={e=>setSortBy(e.target.value)} style={{...ctrlStyle,maxWidth:130}}>
+                {SORT_OPTIONS.map(o=><option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+              <button onClick={openNewNote} style={{fontSize:13,padding:"6px 14px",borderRadius:8,border:"none",background:t.info,color:"#fff",cursor:"pointer",fontWeight:500,whiteSpace:"nowrap"}}>+ Nova nota</button>
+            </div>
+
+            <div style={{flex:1,overflowY:"auto",padding:12,background:t.bg}}>
+              {visibleNotes.length===0?(
+                <div style={{textAlign:"center",color:t.textT,marginTop:60,fontSize:14}}>
+                  <div style={{fontSize:32,marginBottom:12}}>📝</div>
+                  <div>Nenhuma nota encontrada</div>
+                  <div style={{fontSize:12,marginTop:6}}>Toque em "+ Nova nota" para começar</div>
+                </div>
+              ):(
+                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(160px,1fr))",gap:10}}>
+                  {visibleNotes.map(note=>{
+                    const col=colors.find(c=>c.id===note.colorId)||colors[0];
+                    const folder=folders.find(f=>f.id===note.folderId);
+                    const isDragging=draggingNoteId===note.id;
+                    return(
+                      <div key={note.id} draggable onDragStart={e=>onDragStart(e,note.id)} onDragEnd={onDragEnd} onClick={()=>setViewNote(note)}
+                        style={{background:col.bg,border:`1.5px solid ${col.border}`,borderRadius:12,padding:"12px 12px",cursor:"pointer",display:"flex",flexDirection:"column",gap:6,opacity:isDragging?0.45:1,userSelect:"none"}}>
+                        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:4}}>
+                          <div style={{fontWeight:500,fontSize:13,color:col.text,lineHeight:1.3,flex:1}}>{note.title}</div>
+                          <div style={{color:col.text,flexShrink:0}} onClick={e=>e.stopPropagation()}>
+                            <DotsMenu dark={dark} options={[
+                              {label:"Editar",action:()=>openEditNote(note)},
+                              {label:"Exportar",action:()=>setExportOpen({note})},
+                              {label:"Excluir",danger:true,action:()=>deleteNote(note.id)},
+                            ]}/>
+                          </div>
+                        </div>
+                        {note.mode==="text"&&note.content&&(<div style={{fontSize:11,color:col.text,opacity:0.75,lineHeight:1.5,overflow:"hidden",display:"-webkit-box",WebkitLineClamp:3,WebkitBoxOrient:"vertical"}}>{note.content}</div>)}
+                        {note.mode==="table"&&(<div style={{fontSize:10,color:col.text,opacity:0.6,fontStyle:"italic"}}>Tabela {note.table?.cols?.length||0}×{note.table?.rows?.length||0}</div>)}
+                        <div style={{display:"flex",flexWrap:"wrap",gap:3,marginTop:2}}>
+                          {(note.tags||[]).map(tag=><span key={tag} style={{fontSize:10,padding:"1px 6px",borderRadius:20,background:col.border,color:"#fff"}}>{tag}</span>)}
+                        </div>
+                        <div style={{display:"flex",justifyContent:"space-between",marginTop:2}}>
+                          <span style={{fontSize:10,color:col.text,opacity:0.5}}>{folder?`${folder.icon||"📁"} ${folder.name}`:""}</span>
+                          <span style={{fontSize:10,color:col.text,opacity:0.5}}>{note.dateStr}</span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* View Modal */}
+          {viewNote&&(()=>{
+            const col=colors.find(c=>c.id===viewNote.colorId)||colors[0];
+            const folder=folders.find(f=>f.id===viewNote.folderId);
+            return(
+              <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,0.55)",display:"flex",alignItems:"flex-end",justifyContent:"center",zIndex:999}}>
+                <div style={{background:col.bg,border:`1.5px solid ${col.border}`,borderRadius:"12px 12px 0 0",padding:20,width:"100%",maxWidth:680,maxHeight:"85vh",overflow:"auto"}}>
+                  <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:12}}>
+                    <div style={{flex:1,paddingRight:8}}>
+                      <div style={{fontWeight:500,fontSize:15,color:col.text}}>{viewNote.title}</div>
+                      <div style={{fontSize:11,color:col.text,opacity:0.5,marginTop:2}}>{viewNote.dateStr}{folder?` · ${folder.icon||"📁"} ${folder.name}`:""}</div>
+                    </div>
+                    <div style={{display:"flex",gap:6,alignItems:"center",flexShrink:0}}>
+                      <button onClick={()=>{openEditNote(viewNote);setViewNote(null);}} style={{fontSize:12,padding:"5px 10px",borderRadius:8,border:`0.5px solid ${col.border}`,background:"rgba(0,0,0,0.15)",cursor:"pointer",color:col.text}}>Editar</button>
+                      <button onClick={()=>setExportOpen({note:viewNote})} style={{fontSize:12,padding:"5px 10px",borderRadius:8,border:`0.5px solid ${col.border}`,background:"rgba(0,0,0,0.15)",cursor:"pointer",color:col.text}}>Exportar</button>
+                      <button onClick={()=>deleteNote(viewNote.id)} style={{fontSize:12,padding:"5px 10px",borderRadius:8,border:"none",background:"#a03030",cursor:"pointer",color:"#fff"}}>Excluir</button>
+                      <button onClick={()=>setViewNote(null)} style={{background:"none",border:"none",fontSize:22,cursor:"pointer",color:col.text,opacity:0.6,lineHeight:1}}>×</button>
+                    </div>
+                  </div>
+                  {(viewNote.tags||[]).length>0&&(<div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:12}}>{viewNote.tags.map(tag=><span key={tag} style={{fontSize:12,padding:"2px 9px",borderRadius:20,background:col.border,color:"#fff"}}>{tag}</span>)}</div>)}
+                  <div style={{borderTop:`0.5px solid ${col.border}`,paddingTop:14}}>
+                    {viewNote.mode==="table"?(
+                      <div style={{overflowX:"auto"}}>
+                        <table style={{borderCollapse:"collapse",width:"100%",fontSize:13}}>
+                          <thead><tr>{viewNote.table?.cols?.map(c=><th key={c.id} style={{border:`0.5px solid ${col.border}`,padding:"6px 10px",background:"rgba(0,0,0,0.15)",fontWeight:500,color:col.text}}>{c.name}</th>)}</tr></thead>
+                          <tbody>{viewNote.table?.rows?.map(r=><tr key={r.id}>{viewNote.table.cols.map(c=><td key={c.id} style={{border:`0.5px solid ${col.border}`,padding:"5px 10px",color:col.text}}>{r.cells[c.id]||""}</td>)}</tr>)}</tbody>
+                        </table>
+                      </div>
+                    ):(
+                      <div style={{fontSize:14,lineHeight:1.7,whiteSpace:"pre-wrap",color:col.text}}>{viewNote.content||<span style={{opacity:0.4,fontStyle:"italic"}}>Nota vazia</span>}</div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+
+          {modalOpen&&<NoteModal note={modalNote} folders={folders} onSave={handleSaveNote} onClose={()=>setModalOpen(false)} dark={dark}/>}
+          {renameModal&&<RenameModal title={renameModal.type==="tab"?"Renomear tema":"Renomear pasta"} initialName={renameModal.name} initialIcon={renameModal.icon} onSave={(name,icon)=>renameModal.type==="tab"?renameTab(renameModal.id,name,icon):renameFolder(renameModal.id,name,icon)} onClose={()=>setRenameModal(null)} dark={dark}/>}
+          {exportOpen&&<ExportModal tabs={tabs} data={data} activeTabId={activeTabId} activeFolderId={activeFolderId} activeNote={exportOpen?.note||null} onClose={()=>setExportOpen(false)} dark={dark}/>}
+          {importOpen&&<ImportModal onImport={s=>setState(s)} onClose={()=>setImportOpen(false)} dark={dark}/>}
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+
+    // Register service worker
+    if("serviceWorker" in navigator){
+      window.addEventListener("load",()=>{
+        navigator.serviceWorker.register("sw.js").catch(()=>{});
+      });
+    }
+  </script>
+</body>
+</html>
